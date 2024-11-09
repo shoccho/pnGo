@@ -1,1 +1,5 @@
 test.png
+output
+# some dummy tests are ignored for now
+*test*
+*.ppm
