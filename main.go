@@ -243,20 +243,37 @@ func main() {
 
 	for i := 0; i < int(ihdr.Height); i++ {
 		filter_method := decompressed[i*int(scanline_size)]
-		if filter_method != 0 {
-			fmt.Println("Unsupported filter method", filter_method)
-
-		}
-		start := i*int(scanline_size) + 1
+		start := i * int(scanline_size)
 		end := start + int(scanline_size) - 1
-		dp, err := bytesToUint32Slice(decompressed[start:end])
-		if err != nil {
-			fmt.Print("error in bytes to slice", err.Error())
+		scanline := decompressed[start:end]
+		if filter_method == 0 {
+			dp, err := bytesToUint32Slice(scanline[1:])
+			if err != nil {
+				fmt.Print("error in bytes to slice", err.Error())
+			}
+			for _, px := range dp {
+				outputFile.Write([]byte{byte(px)})
+				outputFile.Write([]byte{byte(px >> 8)})
+				outputFile.Write([]byte{byte(px >> 16)})
+			}
+		} else if filter_method == 1 {
+			var sc_idx uint = 1
+			for sc_idx < uint(len(scanline)) {
+				for b := 0; b < 3; b++ {
+					c_idx := sc_idx + uint(b)
+					var prev byte = 0
+					if c_idx >= uint(bytes_per_pixel) {
+						prev = scanline[c_idx-uint(bytes_per_pixel)]
+					}
+					curr := scanline[c_idx]
+					scanline[c_idx] = byte(byte(prev) + curr)
+					outputFile.Write([]byte{scanline[c_idx]})
+				}
+				sc_idx += uint(bytes_per_pixel)
+			}
+		} else {
+			fmt.Println("Unsupported filter method", filter_method)
 		}
-		for _, px := range dp {
-			outputFile.Write([]byte{byte(px)})
-			outputFile.Write([]byte{byte(px >> 8)})
-			outputFile.Write([]byte{byte(px >> 16)})
-		}
+
 	}
 }
