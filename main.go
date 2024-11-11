@@ -167,10 +167,7 @@ func createPPM(name string, width, height int) (*os.File, error) {
 	return file, nil
 }
 func bytesToUint32Slice(b []byte) ([]uint32, error) {
-	if len(b)%4 != 0 {
-		return nil, fmt.Errorf("byte slice length must be a multiple of 4")
-	}
-	uint32Slice := make([]uint32, len(b)/4)
+	uint32Slice := make([]uint32, len(b)/4+1)
 	for i := 0; i < len(b); i += 4 {
 		uint32Slice[i/4] = binary.LittleEndian.Uint32(b[i : i+4])
 	}
@@ -240,6 +237,7 @@ func main() {
 
 	outputFile, err := createPPM("output.ppm", int(ihdr.Width), int(ihdr.Height))
 	defer outputFile.Close()
+	scanlines := make([][]byte, ihdr.Height)
 
 	for i := 0; i < int(ihdr.Height); i++ {
 		filter_method := decompressed[i*int(scanline_size)]
@@ -251,12 +249,22 @@ func main() {
 			if err != nil {
 				fmt.Print("error in bytes to slice", err.Error())
 			}
-			for _, px := range dp {
+			scl := make([]byte, len(dp)*3)
+
+			for idp, px := range dp {
+				ri := idp * 3
+				scl[ri] = byte(px)
+				scl[ri+1] = byte(px >> 8)
+				scl[ri+2] = byte(px >> 16)
+
 				outputFile.Write([]byte{byte(px)})
 				outputFile.Write([]byte{byte(px >> 8)})
 				outputFile.Write([]byte{byte(px >> 16)})
 			}
+			scanlines[i] = scl
 		} else if filter_method == 1 {
+			scl := make([]byte, len(scanline)*3)
+			ti := 0
 			var sc_idx uint = 1
 			for sc_idx < uint(len(scanline)) {
 				for b := 0; b < 3; b++ {
@@ -267,13 +275,40 @@ func main() {
 					}
 					curr := scanline[c_idx]
 					scanline[c_idx] = byte(byte(prev) + curr)
+					scl[ti] = scanline[c_idx]
+					ti++
 					outputFile.Write([]byte{scanline[c_idx]})
 				}
 				sc_idx += uint(bytes_per_pixel)
 			}
+			scanlines[i] = scl
+		} else if filter_method == 2 {
+			scl := make([]byte, len(scanline)*3)
+			ti := 0
+			var sc_idx int = 1
+
+			for sc_idx < int(len(scanline)) {
+				for b := 0; b < 3; b++ {
+					c_idx := sc_idx + b
+					var prev byte = 0
+					if i > 0 && ti < len(scanlines[i-1]) {
+
+						prev = scanlines[i-1][ti]
+					}
+					curr := scanline[c_idx]
+					scanline[c_idx] = byte(byte(prev) + curr)
+					scl[ti] = scanline[c_idx]
+					ti++
+					outputFile.Write([]byte{scanline[c_idx]})
+				}
+				sc_idx += int(bytes_per_pixel)
+			}
+			scanlines[i] = scl
 		} else {
 			fmt.Println("Unsupported filter method", filter_method)
 		}
-
 	}
+	// for _, scline := range scanlines {
+	// outputFile.Write(scline)
+	// }
 }
