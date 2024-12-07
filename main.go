@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math"
 	"os"
 )
 
@@ -217,7 +218,6 @@ func main() {
 	chunk, err := pd.nextChunk()
 	for err == nil && chunk != nil {
 		if chunk.critical {
-			// fmt.Printf("Processing chunk: %s\n", string(chunk.typ))
 			if string(chunk.typ) == "IHDR" {
 				ihdr, err = parseIHDR(chunk.data)
 				if err != nil {
@@ -269,6 +269,7 @@ func main() {
 		end := start + int(scanline_size) - 1
 		scanline := decompressed[start:end]
 		if filter_method == 0 {
+			//none
 			dp, err := bytesToUint32Slice(scanline[1:])
 			if err != nil {
 				fmt.Print("error in bytes to slice", err.Error())
@@ -287,6 +288,7 @@ func main() {
 			}
 			scanlines[i] = scl
 		} else if filter_method == 1 {
+			//left
 			scl := make([]byte, len(scanline)*3)
 			ti := 0
 			var sc_idx uint = 1
@@ -307,6 +309,7 @@ func main() {
 			}
 			scanlines[i] = scl
 		} else if filter_method == 2 {
+			//up
 			scl := make([]byte, len(scanline)*3)
 			ti := 0
 			var sc_idx int = 1
@@ -329,8 +332,41 @@ func main() {
 
 			}
 			scanlines[i] = scl
-		} else if filter_method == 4 {
+		} else if filter_method == 3 {
+			//avg
+			scl := make([]byte, len(scanline)*3)
+			ti := 0
+			var sc_idx uint = 1
 
+			for sc_idx < uint(len(scanline)) {
+				for b := 0; b < 3; b++ {
+					c_idx := sc_idx + uint(b)
+					var left, above byte
+
+					if c_idx >= uint(bytes_per_pixel) {
+						left = scanline[c_idx-uint(bytes_per_pixel)]
+					}
+
+					if i > 0 {
+						above = scanlines[i-1][ti]
+					}
+
+					curr := scanline[c_idx]
+
+					avg := int(math.Floor((float64(left) + float64(above)) / 2.0))
+					scanline[c_idx] = byte((int(curr) + avg))
+					scl[ti] = scanline[c_idx]
+
+					ti++
+					outputFile.Write([]byte{scanline[c_idx]})
+				}
+
+				sc_idx += uint(bytes_per_pixel)
+			}
+			scanlines[i] = scl
+
+		} else if filter_method == 4 {
+			//paeth
 			scl := make([]byte, len(scanline)*3)
 			ti := 0
 			var sc_idx uint = 1
