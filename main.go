@@ -174,6 +174,27 @@ func bytesToUint32Slice(b []byte) ([]uint32, error) {
 	return uint32Slice, nil
 }
 
+func paethPredictor(a, b, c int) int {
+	p := a + b - c
+	pa := abs(p - a)
+	pb := abs(p - b)
+	pc := abs(p - c)
+
+	if pa <= pb && pa <= pc {
+		return a
+	} else if pb <= pc {
+		return b
+	}
+	return c
+}
+
+func abs(x int) int {
+	if x < 0 {
+		return -x
+	}
+	return x
+}
+
 func main() {
 	file, err := os.Open("test.png")
 	if err != nil {
@@ -236,6 +257,9 @@ func main() {
 	fmt.Println(len(decompressed), scanline_size, ihdr.Height)
 
 	outputFile, err := createPPM("output.ppm", int(ihdr.Width), int(ihdr.Height))
+	if err != nil {
+		panic(err)
+	}
 	defer outputFile.Close()
 	scanlines := make([][]byte, ihdr.Height)
 
@@ -302,6 +326,42 @@ func main() {
 					outputFile.Write([]byte{scanline[c_idx]})
 				}
 				sc_idx += int(bytes_per_pixel)
+
+			}
+			scanlines[i] = scl
+		} else if filter_method == 4 {
+
+			scl := make([]byte, len(scanline)*3)
+			ti := 0
+			var sc_idx uint = 1
+
+			for sc_idx < uint(len(scanline)) {
+				for b := 0; b < 3; b++ {
+					c_idx := sc_idx + uint(b)
+					var left, above, upperLeft byte
+
+					if c_idx >= uint(bytes_per_pixel) {
+						left = scanline[c_idx-uint(bytes_per_pixel)]
+					}
+
+					if i > 0 {
+						above = scanlines[i-1][ti]
+					}
+					if i > 0 && ti >= 3 {
+						upperLeft = scanlines[i-1][ti-3]
+					}
+
+					curr := scanline[c_idx]
+					paeth := paethPredictor(int(left), int(above), int(upperLeft))
+
+					scanline[c_idx] = byte((int(curr) + paeth))
+					scl[ti] = scanline[c_idx]
+
+					ti++
+					outputFile.Write([]byte{scanline[c_idx]})
+				}
+
+				sc_idx += uint(bytes_per_pixel)
 			}
 			scanlines[i] = scl
 		} else {
