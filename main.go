@@ -1,19 +1,16 @@
 package main
 
 import (
-	"bytes"
-	"compress/zlib" //TODO: own zlib maybe?
+	"bytes" //TODO: own zlib maybe?
 	"encoding/binary"
 	"errors"
 	"fmt"
-	"io"
 	"math"
 	"os"
+	"pnGo/compression"
+	"pnGo/utils"
 )
 
-func BytesToLenght(data []byte) uint32 {
-	return binary.BigEndian.Uint32(data)
-}
 func isPNG(data []byte) bool {
 	pngHeader := []uint8{137, 80, 78, 71, 13, 10, 26, 10}
 	n := len(pngHeader)
@@ -86,7 +83,6 @@ func newPngDecoder(data []byte) (*PngDecoder, error) {
 func parseIHDR(data []byte) (*IHDR, error) {
 	var ihdr IHDR
 
-	// Read the bytes into the struct
 	reader := bytes.NewReader(data)
 	err := binary.Read(reader, binary.BigEndian, &ihdr)
 	if err != nil {
@@ -108,7 +104,7 @@ func (p *PngDecoder) nextChunk() (*Chunk, error) {
 	if err != nil {
 		return nil, err
 	}
-	chunk_data, err := p.tryAdvance(uint(BytesToLenght(length)))
+	chunk_data, err := p.tryAdvance(uint(utils.BytesToLenght(length)))
 	if err != nil {
 		return nil, err
 	}
@@ -120,10 +116,10 @@ func (p *PngDecoder) nextChunk() (*Chunk, error) {
 		p.finished = true
 	}
 	return &Chunk{
-		lenght:   BytesToLenght(length),
+		lenght:   utils.BytesToLenght(length),
 		typ:      chunk_type,
 		data:     chunk_data,
-		crc:      BytesToLenght(crc),
+		crc:      utils.BytesToLenght(crc),
 		critical: chunk_type[0] >= 'A' && chunk_type[0] <= 'Z',
 	}, nil
 }
@@ -135,23 +131,6 @@ func (p *PngDecoder) tryAdvance(length uint) ([]uint8, error) {
 
 	p.idx += length
 	return p.data[p.idx-length : p.idx], nil
-}
-
-func inflateData(compressedData []byte) ([]byte, error) {
-	reader := bytes.NewReader(compressedData)
-
-	zlibReader, err := zlib.NewReader(reader)
-	if err != nil {
-		return nil, err
-	}
-	defer zlibReader.Close()
-	var decompressedData bytes.Buffer
-
-	_, err = io.Copy(&decompressedData, zlibReader)
-	if err != nil {
-		return nil, err
-	}
-	return decompressedData.Bytes(), nil
 }
 
 func createPPM(name string, width, height int) (*os.File, error) {
@@ -242,7 +221,7 @@ func main() {
 		fmt.Println("Unsupported compression")
 		return
 	}
-	decompressed, err := inflateData(compressedData)
+	decompressed, err := compression.InflateData(compressedData)
 
 	if err != nil {
 		fmt.Println("error :", err.Error())
