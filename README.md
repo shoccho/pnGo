@@ -2,7 +2,7 @@
  it can take a png file as input and output it as a ppm file 
  it was made as and effort to learn golang and handling media files and png images
 
-## current status
+### current status
 
 - 8 bit RGBA png only
 - no interlacing methods supported
