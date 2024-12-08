@@ -1,8 +1,6 @@
 package main
 
 import (
-	//TODO: own zlib maybe?
-
 	"fmt"
 	"os"
 	"pnGo/pngDecoder"
@@ -10,7 +8,14 @@ import (
 )
 
 func main() {
-	file, err := os.Open("test.png")
+
+	if len(os.Args) < 2 {
+		fmt.Println("Usage: go run main.go <file-path>")
+		return
+	}
+	inputFilePath := os.Args[1]
+
+	file, err := os.Open(inputFilePath)
 	if err != nil {
 		fmt.Printf("Error opening file %s\n", err.Error())
 		return
@@ -30,7 +35,7 @@ func main() {
 	if err != nil {
 		panic(err)
 	}
-	outputFile, err := utils.CreatePPM("output2.ppm", int(pngData.Width), int(pngData.Height))
+	outputFile, err := utils.CreatePPM("output.ppm", int(pngData.Width), int(pngData.Height))
 	if err != nil {
 		panic(err)
 	}
