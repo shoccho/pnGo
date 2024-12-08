@@ -10,6 +10,34 @@ import (
 	"pnGo/utils"
 )
 
+type PngData struct {
+	Height uint32
+	Width  uint32
+	Data   [][]byte
+}
+
+func ParseIHDR(data []byte) (*IHDR, error) {
+	var ihdr IHDR
+
+	reader := bytes.NewReader(data)
+	err := binary.Read(reader, binary.BigEndian, &ihdr)
+	if err != nil {
+		fmt.Println("Error reading bytes into struct:", err)
+		return nil, nil
+	}
+	return &ihdr, nil
+}
+
+func NewDecoder(data []byte) (*PngDecoder, error) {
+	if !isPNG(data) {
+		return nil, errors.New("not a png")
+	}
+	return &PngDecoder{
+		data: data,
+		idx:  8,
+	}, nil
+}
+
 type Chunk struct {
 	lenght   uint32
 	typ      []uint8
@@ -22,27 +50,6 @@ type PngDecoder struct {
 	data     []uint8
 	idx      uint
 	finished bool
-}
-
-func NewDecoder(data []byte) (*PngDecoder, error) {
-	if !isPNG(data) {
-		return nil, errors.New("not a png")
-	}
-	return &PngDecoder{
-		data: data,
-		idx:  8,
-	}, nil
-}
-func ParseIHDR(data []byte) (*IHDR, error) {
-	var ihdr IHDR
-
-	reader := bytes.NewReader(data)
-	err := binary.Read(reader, binary.BigEndian, &ihdr)
-	if err != nil {
-		fmt.Println("Error reading bytes into struct:", err)
-		return nil, nil
-	}
-	return &ihdr, nil
 }
 
 func (p *PngDecoder) nextChunk() (*Chunk, error) {
@@ -86,7 +93,7 @@ func (p *PngDecoder) tryAdvance(length uint) ([]uint8, error) {
 	return p.data[p.idx-length : p.idx], nil
 }
 
-func (pd *PngDecoder) Decode() {
+func (pd *PngDecoder) Decode() (*PngData, error) {
 	var ihdr *IHDR
 	compressedData := []uint8{}
 	chunk, err := pd.nextChunk()
@@ -97,12 +104,9 @@ func (pd *PngDecoder) Decode() {
 				if err != nil {
 					fmt.Println(err.Error())
 				}
-				fmt.Println(ihdr)
-				fmt.Println(ihdr.colorType())
 				//support more color types
 				if ihdr.colorType() != rgba {
-					fmt.Printf("Unsupported color type")
-					return
+					return nil, fmt.Errorf("Unsupported color type")
 				}
 			} else if string(chunk.typ) == "IDAT" {
 				compressedData = append(compressedData, chunk.data...)
@@ -113,8 +117,8 @@ func (pd *PngDecoder) Decode() {
 		chunk, err = pd.nextChunk()
 	}
 	if ihdr.Compression_method != 0 {
-		fmt.Println("Unsupported compression")
-		return
+
+		return nil, fmt.Errorf("Unsupported compression")
 	}
 	decompressed, err := compression.InflateData(compressedData)
 
@@ -122,19 +126,12 @@ func (pd *PngDecoder) Decode() {
 		fmt.Println("error :", err.Error())
 	}
 	if ihdr.Interlace_method != 0 {
-		fmt.Println("Unsupported Interlacing mode")
-		return
+		return nil, fmt.Errorf("Unsupported Interlacing mode")
 	}
 	bytes_per_pixel := 4 * ihdr.Bit_depth / 8
 
 	scanline_size := ihdr.Width*uint32(bytes_per_pixel) + 1
-	fmt.Println(len(decompressed), scanline_size, ihdr.Height)
 
-	outputFile, err := utils.CreatePPM("output.ppm", int(ihdr.Width), int(ihdr.Height))
-	if err != nil {
-		panic(err)
-	}
-	defer outputFile.Close()
 	scanlines := make([][]byte, ihdr.Height)
 
 	for i := 0; i < int(ihdr.Height); i++ {
@@ -149,21 +146,19 @@ func (pd *PngDecoder) Decode() {
 				fmt.Print("error in bytes to slice", err.Error())
 			}
 			scl := make([]byte, len(dp)*3)
-
-			for idp, px := range dp {
-				ri := idp * 3
-				scl[ri] = byte(px)
-				scl[ri+1] = byte(px >> 8)
-				scl[ri+2] = byte(px >> 16)
-
-				outputFile.Write([]byte{byte(px)})
-				outputFile.Write([]byte{byte(px >> 8)})
-				outputFile.Write([]byte{byte(px >> 16)})
+			ti := 0
+			for _, px := range dp {
+				scl[ti] = byte(px)
+				ti++
+				scl[ti] = byte(px >> 8)
+				ti++
+				scl[ti] = byte(px >> 16)
+				ti++
 			}
 			scanlines[i] = scl
 		} else if filter_method == 1 {
 			//left
-			scl := make([]byte, len(scanline)*3)
+			scl := make([]byte, len(scanline)/4*3)
 			ti := 0
 			var sc_idx uint = 1
 			for sc_idx < uint(len(scanline)) {
@@ -177,14 +172,13 @@ func (pd *PngDecoder) Decode() {
 					scanline[c_idx] = byte(byte(prev) + curr)
 					scl[ti] = scanline[c_idx]
 					ti++
-					outputFile.Write([]byte{scanline[c_idx]})
 				}
 				sc_idx += uint(bytes_per_pixel)
 			}
 			scanlines[i] = scl
 		} else if filter_method == 2 {
 			//up
-			scl := make([]byte, len(scanline)*3)
+			scl := make([]byte, len(scanline)/4*3)
 			ti := 0
 			var sc_idx int = 1
 
@@ -200,7 +194,6 @@ func (pd *PngDecoder) Decode() {
 					scanline[c_idx] = byte(byte(prev) + curr)
 					scl[ti] = scanline[c_idx]
 					ti++
-					outputFile.Write([]byte{scanline[c_idx]})
 				}
 				sc_idx += int(bytes_per_pixel)
 
@@ -208,7 +201,7 @@ func (pd *PngDecoder) Decode() {
 			scanlines[i] = scl
 		} else if filter_method == 3 {
 			//avg
-			scl := make([]byte, len(scanline)*3)
+			scl := make([]byte, len(scanline)/4*3)
 			ti := 0
 			var sc_idx uint = 1
 
@@ -232,7 +225,6 @@ func (pd *PngDecoder) Decode() {
 					scl[ti] = scanline[c_idx]
 
 					ti++
-					outputFile.Write([]byte{scanline[c_idx]})
 				}
 
 				sc_idx += uint(bytes_per_pixel)
@@ -241,7 +233,7 @@ func (pd *PngDecoder) Decode() {
 
 		} else if filter_method == 4 {
 			//paeth
-			scl := make([]byte, len(scanline)*3)
+			scl := make([]byte, len(scanline)/4*3)
 			ti := 0
 			var sc_idx uint = 1
 
@@ -268,14 +260,15 @@ func (pd *PngDecoder) Decode() {
 					scl[ti] = scanline[c_idx]
 
 					ti++
-					outputFile.Write([]byte{scanline[c_idx]})
 				}
-
 				sc_idx += uint(bytes_per_pixel)
 			}
 			scanlines[i] = scl
 		} else {
 			fmt.Println("Unsupported filter method", filter_method)
 		}
+
 	}
+
+	return &PngData{ihdr.Height, ihdr.Width, scanlines}, nil
 }

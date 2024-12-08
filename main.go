@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"pnGo/pngDecoder"
+	"pnGo/utils"
 )
 
 func main() {
@@ -25,8 +26,17 @@ func main() {
 	if err != nil {
 		fmt.Printf("err: %v\n", err)
 	}
-	pd.Decode()
-	// for _, scline := range scanlines {
-	// outputFile.Write(scline)
-	// }
+	pngData, err := pd.Decode()
+	if err != nil {
+		panic(err)
+	}
+	outputFile, err := utils.CreatePPM("output2.ppm", int(pngData.Width), int(pngData.Height))
+	if err != nil {
+		panic(err)
+	}
+	defer outputFile.Close()
+
+	for _, scanline := range pngData.Data {
+		outputFile.Write(scanline)
+	}
 }
