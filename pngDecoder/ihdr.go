@@ -11,17 +11,17 @@ const (
 )
 
 type IHDR struct {
-	Width              uint32
-	Height             uint32
-	Bit_depth          byte
-	Color_type         byte
-	Compression_method byte
-	Filter_method      byte
-	Interlace_method   byte
+	Width             uint32
+	Height            uint32
+	BitDepth          byte
+	ColorType         byte
+	CompressionMethod byte
+	FilterMethod      byte
+	InterlaceMethod   byte
 }
 
 func (ihdr *IHDR) colorType() ColorType {
-	switch ihdr.Color_type {
+	switch ihdr.ColorType {
 	case 0:
 		return y
 	case 2:
