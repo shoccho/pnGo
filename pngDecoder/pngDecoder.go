@@ -5,7 +5,6 @@ import (
 	"encoding/binary"
 	"errors"
 	"fmt"
-	"math"
 	"pnGo/compression"
 	"pnGo/utils"
 )
@@ -37,16 +36,6 @@ func NewDecoder(data []byte) (*PngDecoder, error) {
 		idx:  8,
 	}, nil
 }
-
-type FilterMethod byte
-
-const (
-	NONE FilterMethod = iota
-	LEFT
-	UP
-	AVG
-	PAETH
-)
 
 type Chunk struct {
 	lenght   uint32
@@ -136,7 +125,7 @@ func (pd *PngDecoder) Decode() (*PngData, error) {
 	if ihdr.InterlaceMethod != 0 {
 		return nil, fmt.Errorf("unsupported Interlacing mode")
 	}
-	bytesPerPixel := 4 * ihdr.BitDepth / 8
+	bytesPerPixel := 4 * ihdr.BitDepth / 8 //maybe int?
 
 	scanlineSize := ihdr.Width*uint32(bytesPerPixel) + 1
 
@@ -148,120 +137,30 @@ func (pd *PngDecoder) Decode() (*PngData, error) {
 		end := start + int(scanlineSize) - 1
 		scanline := decompressed[start:end]
 		if filterMethod == byte(NONE) {
-			dp, err := utils.BytesToUint32Slice(scanline[1:])
-			if err != nil {
-				fmt.Print("error in bytes to slice", err.Error())
-			}
-			processedLine := make([]byte, len(dp)*3)
-			processedIndex := 0
-			for _, px := range dp {
-				processedLine[processedIndex] = byte(px)
-				processedIndex++
-				processedLine[processedIndex] = byte(px >> 8)
-				processedIndex++
-				processedLine[processedIndex] = byte(px >> 16)
-				processedIndex++
-			}
-			scanlines[i] = processedLine
+			scanlines[i] = processNoneFilter(scanline[1:])
 		} else if filterMethod == byte(LEFT) {
-			processedLine := make([]byte, len(scanline)/4*3)
-			processedIndex := 0
-			var rawIndex uint = 1
-			for rawIndex < uint(len(scanline)) {
-				for b := 0; b < 3; b++ {
-					colorIndex := rawIndex + uint(b)
-					var prev byte = 0
-					if colorIndex >= uint(bytesPerPixel) {
-						prev = scanline[colorIndex-uint(bytesPerPixel)]
-					}
-					curr := scanline[colorIndex]
-					scanline[colorIndex] = byte(byte(prev) + curr)
-					processedLine[processedIndex] = scanline[colorIndex]
-					processedIndex++
-				}
-				rawIndex += uint(bytesPerPixel)
-			}
-			scanlines[i] = processedLine
+			scanlines[i] = processLeftFilter(scanline, bytesPerPixel)
 		} else if filterMethod == byte(UP) {
-			processedLine := make([]byte, len(scanline)/4*3)
-			processedIndex := 0
-			var rawIndex int = 1
-
-			for rawIndex < int(len(scanline)) {
-				for b := 0; b < 3; b++ {
-					colorIndex := rawIndex + b
-					var prev byte = 0
-					if i > 0 && processedIndex < len(scanlines[i-1]) {
-
-						prev = scanlines[i-1][processedIndex]
-					}
-					curr := scanline[colorIndex]
-					scanline[colorIndex] = byte(byte(prev) + curr)
-					processedLine[processedIndex] = scanline[colorIndex]
-					processedIndex++
-				}
-				rawIndex += int(bytesPerPixel)
+			if i == 0 {
+				scanlines[i] = processUpFilter(nil, scanline, bytesPerPixel)
+			} else {
+				scanlines[i] = processUpFilter(scanlines[i-1], scanline, bytesPerPixel)
 			}
-			scanlines[i] = processedLine
 		} else if filterMethod == byte(AVG) {
-			processedLine := make([]byte, len(scanline)/4*3)
-			processedIndex := 0
-			var rawIndex uint = 1
-
-			for rawIndex < uint(len(scanline)) {
-				for b := 0; b < 3; b++ {
-					colorIndex := rawIndex + uint(b)
-					var left, above byte
-					if colorIndex >= uint(bytesPerPixel) {
-						left = scanline[colorIndex-uint(bytesPerPixel)]
-					}
-					if i > 0 {
-						above = scanlines[i-1][processedIndex]
-					}
-					curr := scanline[colorIndex]
-					avg := int(math.Floor((float64(left) + float64(above)) / 2.0))
-					scanline[colorIndex] = byte((int(curr) + avg))
-					processedLine[processedIndex] = scanline[colorIndex]
-					processedIndex++
-				}
-				rawIndex += uint(bytesPerPixel)
+			if i == 0 {
+				scanlines[i] = processAvgFilter(nil, scanline, bytesPerPixel)
+			} else {
+				scanlines[i] = processAvgFilter(scanlines[i-1], scanline, bytesPerPixel)
 			}
-			scanlines[i] = processedLine
-
 		} else if filterMethod == byte(PAETH) {
-			processedLine := make([]byte, len(scanline)/4*3)
-			processedIndex := 0
-			var rawIndex uint = 1
-			for rawIndex < uint(len(scanline)) {
-				for b := 0; b < 3; b++ {
-					colorIndex := rawIndex + uint(b)
-					var left, above, upperLeft byte
-
-					if colorIndex >= uint(bytesPerPixel) {
-						left = scanline[colorIndex-uint(bytesPerPixel)]
-					}
-
-					if i > 0 {
-						above = scanlines[i-1][processedIndex]
-					}
-					if i > 0 && processedIndex >= 3 {
-						upperLeft = scanlines[i-1][processedIndex-3]
-					}
-
-					curr := scanline[colorIndex]
-					paeth := paethPredictor(int(left), int(above), int(upperLeft))
-
-					scanline[colorIndex] = byte((int(curr) + paeth))
-					processedLine[processedIndex] = scanline[colorIndex]
-					processedIndex++
-				}
-				rawIndex += uint(bytesPerPixel)
+			if i == 0 {
+				scanlines[i] = processPaethFilter(nil, scanline, bytesPerPixel)
+			} else {
+				scanlines[i] = processPaethFilter(scanlines[i-1], scanline, bytesPerPixel)
 			}
-			scanlines[i] = processedLine
 		} else {
 			fmt.Println("Unsupported filter method", filterMethod)
 		}
-
 	}
 
 	return &PngData{ihdr.Height, ihdr.Width, scanlines}, nil
